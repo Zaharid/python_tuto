@@ -1,5 +1,7 @@
-% Advanced Python tutorial
-% Zahari Kassabov
+---
+title: Object oriented Python tutorial
+author: Zahari Kassabov
+---
 
 # Introduction
 
@@ -723,9 +725,80 @@ uniqueness.
 
 ## Equality and hash maps in Python
 
+### Basics of hash maps
+
 Python uses structures like sets and dicts to track objects rather ubiquitously,
 both internally and in user defined code. It is helpful to have some minimal
-idea of how they work.
+idea of how they work. Both sets and dicts allow us to quickly query if they
+contain an item that is "equal to" the input one. That is spelled `item in
+container` in both cases. In general, what "equal to" means is user defined (by
+defining an `__eq__` method for a given class).
+
+For the purposes of this discussion, a suitable
+caricature of a set is a big list of "buckets", each of them indexed by an
+address:
+
+```
+              +---|---|---|---|---|---|-----+
+buckets =     | 0 | 1 | 2 | 3 | 4 | 5 | ... |
+              +===|===|===|===|===|===|=====+
+
+```
+
+When we want to add an object to a set, we compute the bucket to which the
+object belongs, which we do with something similar to `bucket = hash(item) %
+number_of_buckets`. So if `item` ends up in the second bucket, the state of the
+set is
+
+```
+              +---|------|---|---|---|---|-----+
+              | 0 | 1    | 2 | 3 | 4 | 5 | ... |
+set =         +===|======|===|===|===|===|=====+
+              |   | item |   |   |   |   |     |
+              +---|------|---|---|---|---|-----+
+```
+
+Similarly, if we add `item2` which happens to correspond to the third bucket,
+and `item3` which also corresponds to the second, we have
+
+```
++---|-------|-------|---|---|---|-----+
+| 0 | 1     | 2     | 3 | 4 | 5 | ... |
++===|=======|=======|===|===|===|=====+
+|   | item  | item2 |   |   |   |     |
++---|-------|-------|---|---|---|-----+
+|   | item3 |       |   |   |   |     |
++---|-------|-------|---|---|---|-----+
+
+```
+
+Because equality is user defined then `__hash__` also needs to be user defined.
+It must satisfy two important properties, as well as being an integer. The
+implementation doesn't check for them, but bad things happen if they are not
+satisfied:
+
+  - Object equality must imply hash equality.
+  - The hash must not change while an object is in some container.
+
+Why these must hold can somewhat be inferred from the caricature of the set
+above (I stress that the actual implementation differs, but this is good enough
+to get the approximate picture): If it is quick to compute the hash, then it is
+quick (as in O(1)) to query if a given item is in the set, as long as there
+aren't too many other items in the bucket: Just look at the bucket that
+corresponds to the item and then compare the equality of only the items within
+the bucket. It follows that a good hash function should spread the hash values
+as much as possible (i.e. appear random). With this picture in mind, it is easy
+to see how things can go wrong if the two properties above are not satisfied.
+
+
+In practice being usable as an item inside this kind of hash based structures
+(this is called being *hashable*) means that both the equality state and the
+value of the hash should remain constant after the object initialization.
+Objects that cannot practically satisfy this, such as lists (where the contents
+of the list and thus the equality are supposed to be modified all the time)
+typically do not have a hash method and thus are considered *non hashable*. Such
+objects cannot be used as dictionary keys or set members.
+
 
 By default the equality operator for user defined objects (that is
 `object.__eq__`) compares objects by identity. That means that the default
