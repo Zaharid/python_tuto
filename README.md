@@ -612,6 +612,40 @@ We have to add the following to `Expression`:
         return And(other, self)
 ```
 
+We have enough functionality to define distributions in terms of operations with the random
+variables that we already have:
+
+```python
+
+In [38]: def bernouilli(name, p): 
+    ...:     return v.Uniform(name) < p 
+    ...:                                                                                                              
+
+In [39]: v.nexpected(bernouilli('B', 0.6))                                                                            
+Out[39]: 0.594
+
+In [48]: def general_normal(name, mean=0, std=1): 
+    ...:     return v.Normal(name)*std + mean 
+    ...:     
+
+
+In [55]: gn = general_normal('X', mean=2, std=5)                                                                      
+
+In [56]: v.nexpected(gn)                                                                                              
+Out[56]: 2.174880464882276
+
+In [57]: v.nexpected(gn)**2                                                                                           
+Out[57]: 4.11999351316828
+
+In [58]: v.nexpected(gn**2) - v.nexpected(gn)**2                                                                      
+Out[58]: 25.77880229992754
+
+```
+
+Of course we could equivalently have `Variable` subclasses with the same
+functionality.
+
+
 We can now ask for the probability of some function of random variables:
 
 ```python
@@ -662,6 +696,103 @@ In [37]: (U - U).sample()
 Out[37]: 0.3785829350534451
 ```
 
+We are currently sampling independently each time a given symbol appears in an
+expression, and that is most certainly not what we want.
+
 Let's make it right now.
 
 # Implementing correlated samples
+
+We found a misguided piece of logic and we want to fix it. In the real world
+there might be some pressure to keep working everything that was working before,
+and also to minimize the medications of the code.
+
+The basic problem is that a given expression doesn't at the moment know which
+unique variables it has. So we need to add a way for a general Expression to
+know that.  We are going to let the various `Variable` subclasses keep sampling
+in the same way, but otherwise, we are going to implement `sample` in terms of a
+`subs` method: First sample the unique variables, then substitute the
+realizations in the expression.
+
+Note that here it shows that it was a good idea to
+abstract away `BinaryOperator`. We don't want to be reimplementing the tricky
+logic for each subclass.
+
+The first task is to think about what it means to be unique and how Python sees
+uniqueness.
+
+## Equality and hash maps in Python
+
+Python uses structures like sets and dicts to track objects rather ubiquitously,
+both internally and in user defined code. It is helpful to have some minimal
+idea of how they work.
+
+By default the equality operator for user defined objects (that is
+`object.__eq__`) compares objects by identity. That means that the default
+equality condition is that the objects are identical (as in  corresponding to
+the same C structure in memory for CPython) regardless of their *value*. The
+operator `is` does this always. Its behaviour can be surprising for
+implementation defined objects such as integers. The following interpreter
+interaction may illustrate that:
+
+```python
+
+In [59]: X = v.Variable('X')                                                                                          
+
+In [60]: XX = v.Variable('X')                                                                                         
+
+#Default object comparison is done by identity
+In [61]: X == XX                                                                                                      
+Out[61]: False
+
+#X is not "equal to" XX because these are not equal
+In [62]: id(X)                                                                                                        
+Out[62]: 140158798931504
+
+In [63]: id(XX)                                                                                                       
+Out[63]: 140158799559872
+
+
+#This is exactly the same as the is operator
+In [64]: X is XX                                                                                                      
+Out[64]: False
+
+#And has nothing to do with the fact that e.g.
+#(note that dict equality is defined by equality of keys and values)
+In [75]: X.__dict__ == XX.__dict__                                                                                    
+Out[75]: True
+
+#Instead container types usually work with pointers.
+In [65]: l = []                                                                                                       
+
+In [66]: l.append(X)                                                                                                  
+
+#So this works.
+In [67]: l[0] == X                                                                                                    
+Out[67]: True
+
+#Small integers are identical
+In [68]: x = 4                                                                                                        
+
+In [69]: y = 4                                                                                                        
+
+In [70]: x is y                                                                                                       
+Out[70]: True
+
+#But bit integers aren't
+In [71]: xx = 1234567890                                                                                              
+
+In [72]: yy = 1234567890                                                                                              
+
+In [73]: xx is yy                                                                                                     
+Out[73]: False
+
+#Even if they are equal
+In [74]: xx == yy                                                                                                     
+Out[74]: True
+
+```
+
+
+Now, we want to specify that `Variable` types are equal if they have the same
+name. We do that by overloading the `__eq__` operator.
