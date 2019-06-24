@@ -425,7 +425,7 @@ last line of `sample` and the `__repr__`. We move everything else to a
 import operator
 
 class BinaryOp(Expression):
-    op = None  # To be specizliced
+    op = None  # To be specialised
 
     def __init__(self, left, right):
         self.left = left
@@ -457,4 +457,211 @@ fact wouldn't work because it would also need a `self` argument (can you see
 why?).
 
 Note that we have added parentheses around the repr, which will become useful as
-we get more complicated expressions.
+we get more complicated expressions. With this, it is a breeze to add more
+operators:
+
+```python
+
+class Sub(BinaryOp):
+    op = operator.sub
+
+    def __repr__(self):
+        return f'({self.left} - {self.right})'
+
+
+class Mul(BinaryOp):
+    op = operator.mul
+
+    def __repr__(self):
+        return f'({self.left} * {self.right})'
+
+
+class Div(BinaryOp):
+    op = operator.truediv
+
+    def __repr__(self):
+        return f'({self.left} / {self.right})'
+
+
+class Pow(BinaryOp):
+    op = operator.pow
+
+    def __repr__(self):
+        return f'({self.left} ** {self.right})'
+```
+
+We also want the corresponding dunder methods of Expression:
+
+```python
+
+    def __sub__(self, other):
+        return Sub(self, other)
+
+    def __rsub__(self, other):
+        return Sub(other, self)
+
+    def __mul__(self, other):
+        return Mul(self, other)
+
+    def __rmul__(self, other):
+        return Mul(other, self)
+
+    def __truediv__(self, other):
+        return Div(self, other)
+
+    def __rtruediv__(self, other):
+        return Div(other, self)
+
+    def __pow__(self, other):
+        return Pow(self, other)
+
+    def __rpow__(self, other):
+        return Pow(other, self)
+```
+
+Note that we got mostly for free something that composes with arbitrary nesting:
+
+```python
+
+In [19]: E = ((1 + W)**(Y + Z))/(10 + U*(V - T/(3*X)))                                                                
+
+In [20]: v.nexpected(E, n=1000000)                                                                                    
+Out[20]: 0.12261981197819713
+```
+
+And also that we can also make use of Python's rules for operator precedence,
+without having to implement our own.
+
+Furthermore composing operations works for any type for which the operations are
+defined:
+
+```python
+
+In [21]: class Greeting(v.Variable): 
+    ...:     def sample(self): 
+    ...:         import random 
+    ...:         return random.choice(["Hola", "Hello", "Ciao"]) 
+
+
+In [23]: G = Greeting('G')                                                                                            
+
+In [24]: H = Greeting('H')                                                                                            
+
+In [25]: (G + H*3).sample()                                                                                           
+Out[25]: 'CiaoHelloHelloHello'
+
+```
+
+
+The logical operators are somewhat interesting. They will usually map two random
+expressions into the booleans, allowing us to ask questions about the
+probability of certain events. Code-wise they work just like the other
+operators, with the only difference that there are no reflected versions of less
+than and greater than, and instead they are each other's reflection:
+
+```python
+
+class Lt(BinaryOp):
+    op = operator.lt
+
+    def __repr__(self):
+        return f'({self.left} < {self.right})'
+
+
+class Gt(BinaryOp):
+    op = operator.gt
+
+    def __repr__(self):
+        return f'({self.left} > {self.right})'
+
+
+class Or(BinaryOp):
+    op = operator.or_
+
+    def __repr__(self):
+        return f'({self.left} | {self.right})'
+
+
+class And(BinaryOp):
+    op = operator.and_
+
+    def __repr__(self):
+        return f'({self.left} & {self.right})'
+```
+
+We have to add the following to `Expression`:
+
+```python
+
+    def __lt__(self, other):
+        return Lt(self, other)
+
+    def __gt__(self, other):
+        return Gt(self, other)
+
+    def __or__(self, other):
+        return Or(self, other)
+
+    def __ror__(self, other):
+        return Or(other, self)
+
+    def __and__(self, other):
+        return And(self, other)
+
+    def __rand__(self, other):
+        return And(other, self)
+```
+
+We can now ask for the probability of some function of random variables:
+
+```python
+
+def nprobability(x, n=1000):
+    """Compute the probability of ``x`` based on ``n`` samples"""
+    return sum(bool(x.sample()) for _ in range(n)) / n
+
+```
+
+`nexpexted` would work the same here, but this way we have a more descriptive
+name.
+
+For example the probability that a realization of a standard normal variable is
+less than one is roughly:
+
+```python
+In [32]:  v.nprobability( v.Normal('X') < 1)                                                                          
+Out[32]: 0.854
+```
+
+And we can even compute π in a very inefficient way, by asking what is the
+probability that a point in a plane defined by realizations of two uniform
+variables is in the unit circle:
+
+```python
+
+In [33]: U = v.Uniform('U')                                                                                           
+
+In [34]: V = v.Uniform('V')                                                                                           
+
+In [35]: v.nprobability(U**2 + V**2 < 1)*4                                                                            
+Out[35]: 3.184
+
+
+In [36]: v.nprobability(U**2 + V**2 < 1, n=10_000_000)*4                                                              
+Out[36]: 3.1414844
+```
+
+As you can see, this doesn't converge all that well.
+
+Our little framework is rather cute for the amount of code it took, but however
+it has a rather important flaw:
+
+```python
+
+In [37]: (U - U).sample()                                                                                             
+Out[37]: 0.3785829350534451
+```
+
+Let's make it right now.
+
+# Implementing correlated samples
