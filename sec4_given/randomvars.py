@@ -6,7 +6,45 @@ A framework to study random variables
 import operator
 import random
 
+OPS = (
+    '__add__',
+    '__radd__',
+    '__sub__',
+    '__rsub__',
+    '__mul__',
+    '__rmul__',
+    '__truediv__',
+    '__rtruediv__',
+    '__pow__',
+    '__rpow__',
+    '__lt__',
+    '__gt__',
+    '__or__',
+    '__ror__',
+    '__and__',
+    '__rand__',
+)
 
+
+def not_given_ops(cls):
+    for name in OPS:
+
+        def closure():
+            # Need closure to store this
+            op = getattr(cls, name)
+
+            def method(self, other):
+                if isinstance(other, Given):
+                    return NotImplemented
+                return op(self, other)
+
+            return method
+
+        setattr(cls, name, closure())
+    return cls
+
+
+@not_given_ops
 class Expression:
     def __init__(self):
         self.unique_vars = set()
@@ -189,6 +227,50 @@ class And(BinaryOp):
 
     def __repr__(self):
         return f'({self.left} & {self.right})'
+
+
+def postfix_and(cls):
+    for name in OPS:
+
+        def closure():
+            # Need closure to store this
+            op = getattr(cls, name)
+
+            def method(self, other):
+                if isinstance(other, self.__class__):
+                    oval = other.left
+                    right = self.right & other.right
+                else:
+                    oval = other
+                    right = self.right
+                return self.__class__(op(self.left, oval), right)
+
+            return method
+
+        setattr(cls, name, closure())
+    return cls
+
+
+@postfix_and
+class Given(BinaryOp):
+    def __init__(self, left, right):
+        if isinstance(left, self.__class__):
+            right = right & left.right
+            left = left.left
+        super().__init__(left, right)
+
+    @classmethod
+    def op(cls, left, right):
+        return cls(left, right)
+
+    def sample(self):
+        while True:
+            val = super().sample()
+            if val.right:
+                return val.left
+
+    def __repr__(self):
+        return f'{{ {self.left}  ; {self.right} }}'
 
 
 def nexpected(x, n=1000):
